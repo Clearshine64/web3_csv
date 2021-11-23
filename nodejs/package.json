@@ -1,0 +1,17 @@
+{
+  "name": "balanceof_from_csv",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "csv-parser": "^3.0.0",
+    "web3": "^1.6.1",
+    "web3-eth-contract": "^1.6.1"
+  }
+}
