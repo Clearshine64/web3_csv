@@ -3,24 +3,42 @@ const Web3 = require('web3');
 const path = require("path");
 const fs = require('fs');
 const converter = require('json-2-csv');
+const cron = require('node-cron');
 
 
 const tokenABI = JSON.parse(fs.readFileSync(path.resolve(__dirname, "tokenABI.json")));
 const address = "0x4691f60c894d3f16047824004420542e4674e621";
+const heroAddress = "0x63f5e5493Fce9C5452092D0D94D9efD1f6BE20aE";
+
 const web3 = new Web3(new Web3.providers.HttpProvider('https://bsc-dataseed1.binance.org:443'));
+
 const tokenContract = new web3.eth.Contract(tokenABI, address);
+const heroContract = new web3.eth.Contract(tokenABI, heroAddress);
 
 
 const router = express.Router();
 const app = express();
 
 async function checkBalance(address) {
-    let flag = await tokenContract.methods.balanceOf(address).call();
-    if (flag > 200000 * 10 ** 9) {
+    let balance = await tokenContract.methods.balanceOf(address).call();
+    let heroBalance = await heroContract.methods.balanceOf(address).call();
+    console.log(heroBalance);
+    console.log(balance);
+    if ((balance / 10**9) + heroBalance * 18000 > 200000) {
         return true;
     } else{
         return false;
     }
+}
+
+async function showTotalSupply() {
+    let totalSupply = await tokenContract.methods.totalSupply().call();
+    let burnAddress = "0x000000000000000000000000000000000000dead";
+    let burnBalance = await tokenContract.methods.balanceOf(burnAddress).call();
+    console.log(totalSupply);
+    console.log(burnBalance);
+    let result = (totalSupply - burnBalance) / (10 ** 9);
+    return result;
 }
 
 function removeFromGroupA(address) {
@@ -120,6 +138,119 @@ function checkAddressInGroupB(address) {
     }
 }
 
+function addTgName(address, tgName) {
+    let obj = {
+        GroupC: []
+    };
+
+    let rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupC.json'));
+    if(rawdata != "")
+        obj = JSON.parse(rawdata);
+
+    let flag = false;
+
+    for(let addr of obj.GroupC) {
+        if(addr.address === address) {
+            addr.tgName = tgName;
+            console.log("------------------updated-------------------");
+            flag = true;
+            break;
+        }
+    }
+
+    if(!flag)
+        obj.GroupC.push({address, tgName});
+    console.log("---------------------added-----------------------");
+    console.log(obj)
+
+    let json = JSON.stringify(obj);
+    fs.writeFile('GroupC.json', json, 'utf8', (err, result) => {  // WRITE
+        if (err) {
+            return console.error(err);
+        } else {
+            console.log(result);
+            console.log("Success");
+    }});
+}
+
+function getTgName(address) {
+    let obj = {
+        GroupC: []
+    };
+
+    let rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupC.json'));
+    if(rawdata != "")
+        obj = JSON.parse(rawdata);
+    
+    for(let addr of obj.GroupC) {
+        if(addr.address === address) {
+            return addr.tgName;
+        }
+    }
+
+    return "";
+}
+
+async function addToGroupB() {
+    let objA = {
+        GroupA: []
+    };
+
+    let objB = {
+        GroupB: []
+    };
+
+    let rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupA.json'));
+    if(rawdata == "") {
+        return "GroupA is empty";
+        return;
+    } else {
+        objA = JSON.parse(rawdata);
+    }
+
+    rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupB.json'));
+    if(rawdata != "") {
+        objB = JSON.parse(rawdata);
+        console.log(objB);
+    }
+
+    for(let addrA of objA.GroupA) {
+        console.log(addrA.address)
+        let flag = await checkBalance(addrA.address);
+        console.log(flag)
+        if(!flag) {
+            for(let addrB of objB.GroupB) { 
+                if(addrB.address === addrA.address) {
+                    return "Already added";
+                }
+            }
+
+            // insert addrA to GroupB.json
+            objB.GroupB.push(addrA);
+            let json = JSON.stringify(objB);
+            console.log(json);
+            fs.writeFile('GroupB.json', json, 'utf8', (err, result) => {  // WRITE
+                if (err) {
+                    return console.error(err);
+                } else {
+                    console.log(result);
+                    console.log("Success");
+            }});
+
+            // remove addrA from GroupA.json
+            removeFromGroupA(addrA.address);
+            return "Successfully added!";
+
+        }
+    }
+    return "Nothing to added!";
+}
+
+//-------------------------- Cron Job -------------------------
+cron.schedule("30 1 1,15 * *", async () => {
+    await addToGroupB();
+});
+
 //------------------------- API --------------------------------
 router.get('/', function(req, res){
     res.send("Hello world!");
@@ -133,6 +264,12 @@ router.get('/api/checkBalance', async (req, res) => {
     } else {
         res.send("false");
     }
+})
+
+router.get('/api/showTotalSupply', async (req, res) => {
+    let totalSupply = await showTotalSupply();
+    console.log(totalSupply);
+    res.send(totalSupply.toString());
 })
 
 // Add address to GroupA
@@ -175,60 +312,8 @@ router.get('/api/addToGroupA', async (req, res) => {
 
 // add address to GroupB from GroupA
 router.get('/api/addToGroupB', async (req, res) => {
-    let objA = {
-        GroupA: []
-    };
-
-    let objB = {
-        GroupB: []
-    };
-
-    let rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupA.json'));
-    if(rawdata == "") {
-        res.send("GroupA is empty");
-        return;
-    } else {
-        objA = JSON.parse(rawdata);
-    }
-
-    rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupB.json'));
-    if(rawdata != "") {
-        objB = JSON.parse(rawdata);
-        console.log(objB);
-    }
-
-    for(let addrA of objA.GroupA) {
-        console.log(addrA.address)
-        let flag = await checkBalance(addrA.address);
-        console.log(flag)
-        if(!flag) {
-            for(let addrB of objB.GroupB) { 
-                if(addrB.address === addrA.address) {
-                    res.send("Already added");
-                    return;
-                }
-            }
-
-            // insert addrA to GroupB.json
-            objB.GroupB.push(addrA);
-            let json = JSON.stringify(objB);
-            console.log(json);
-            fs.writeFile('GroupB.json', json, 'utf8', (err, result) => {  // WRITE
-                if (err) {
-                    return console.error(err);
-                } else {
-                    console.log(result);
-                    console.log("Success");
-            }});
-
-            // remove addrA from GroupA.json
-            removeFromGroupA(addrA.address);
-            res.send("Successfully added!");
-
-        }
-        
-    }
-
+    let str = await addToGroupB();
+    res.send(str);
 })
 
 router.get('/api/removeFromGroupA', (req, res) => {
@@ -263,13 +348,35 @@ router.get('/api/checkAddressInGroupB', (req, res) => {
     }
 })
 
-router.get('/api/downloadGroup', function(req, res){
+router.get('/api/addTgName', function(req, res){
+    
+    addTgName(req.query.address, req.query.tgName);
+    res.send("Successfully added!");
+})
+
+router.get('/api/getTgName', function(req, res){
+    res.send(getTgName(req.query.address));
+})
+
+router.get('/api/downloadGroup', async (req, res) => {
     let objA = {
         GroupA: []
     };
 
     let objB = {
         GroupB: []
+    };
+
+    let objC = {
+        GroupC: []
+    };
+
+    let objDownA = {
+        DownA: []
+    };
+
+    let objDownB = {
+        DownB: []
     };
 
     let rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupA.json'));
@@ -282,7 +389,43 @@ router.get('/api/downloadGroup', function(req, res){
         objB = JSON.parse(rawdata);
     console.log(objB);
 
-    converter.json2csv(objA.GroupA, (err, csv) => {
+    rawdata = fs. readFileSync(path. resolve(__dirname, 'GroupC.json'));
+    if(rawdata != "")
+        objC = JSON.parse(rawdata);
+    console.log(objC);
+
+    for(let addrA of objA.GroupA) {
+        let balance = await tokenContract.methods.balanceOf(addrA.address).call();
+        let heroBalance = await heroContract.methods.balanceOf(addrA.address).call();
+        let amount = (balance / 10**9) + heroBalance * 18000;
+        let tgName = getTgName(addrA.address);
+        objDownA.DownA.push({address: addrA.address, amount, tgName});
+    }
+    
+    objDownA.DownA.sort(function(a, b) {
+        return (b.balance + b.heroBalance * 18000) - (a.balance + a.heroBalance * 18000);
+    });
+    
+    console.log("------------------------");
+    console.log(objDownA);
+
+    for(let addrB of objB.GroupB) {
+        let balance = await tokenContract.methods.balanceOf(addrB.address).call();
+        let heroBalance = await heroContract.methods.balanceOf(addrB.address).call();
+        let amount = (balance / 10**9) + heroBalance * 18000;
+        let tgName = getTgName(addrB.address);
+        objDownB.DownB.push({address: addrB.address, amount, tgName});
+    }
+
+    objDownB.DownB.sort(function(a, b) {
+        return (b.balance + b.heroBalance * 18000) - (a.balance + a.heroBalance * 18000);
+    });
+
+    console.log("------------------------");
+    console.log(objDownB);
+
+
+    converter.json2csv(objDownA.DownA, (err, csv) => {
         if (err) {
             throw err;
         }
@@ -295,7 +438,7 @@ router.get('/api/downloadGroup', function(req, res){
         
     });
 
-    converter.json2csv(objB.GroupB, (err, csv) => {
+    converter.json2csv(objDownB.DownB, (err, csv) => {
         if (err) {
             throw err;
         }
@@ -308,13 +451,10 @@ router.get('/api/downloadGroup', function(req, res){
         
     });
 
-
     res.send("Successfully downloaded!");
 });
 
 
 app.use("/", router);
-
 app.listen(3000);
-
 console.log("localhost:3000 is listening")
